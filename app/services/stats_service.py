@@ -1,7 +1,7 @@
 import logging
 import uuid
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -306,9 +306,9 @@ async def get_daily_stats(
     query = select(BrokerDailyStat).where(BrokerDailyStat.connection_id == connection_id)
 
     if from_date:
-        query = query.where(BrokerDailyStat.date >= from_date)
+        query = query.where(BrokerDailyStat.date >= date.fromisoformat(from_date))
     if to_date:
-        query = query.where(BrokerDailyStat.date <= to_date)
+        query = query.where(BrokerDailyStat.date <= date.fromisoformat(to_date))
 
     result = await db.execute(query.order_by(BrokerDailyStat.date))
     return list(result.scalars().all())
