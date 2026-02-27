@@ -77,6 +77,11 @@ async def recalculate_daily_stats(
 async def get_dashboard(
     db: AsyncSession, connection: BrokerConnection
 ) -> DashboardResponse:
+    logger.info(
+        "[DASHBOARD] Querying DB for connection=%s provider=%s",
+        connection.id, connection.provider,
+    )
+
     result = await db.execute(
         select(BrokerTrade)
         .where(BrokerTrade.connection_id == connection.id, BrokerTrade.status == "closed")
@@ -91,12 +96,42 @@ async def get_dashboard(
     )
     open_trades = list(result.scalars().all())
 
+    logger.info(
+        "[DASHBOARD] DB result: closed_trades=%d open_trades=%d",
+        len(closed_trades), len(open_trades),
+    )
+
+    if closed_trades:
+        sample = closed_trades[0]
+        logger.info(
+            "[DASHBOARD] Sample trade: id=%s symbol=%s side=%s pnl=%s volume=%s "
+            "open_time=%s close_time=%s status=%s source=%s",
+            sample.id, sample.symbol, sample.side, sample.pnl, sample.volume,
+            sample.open_time, sample.close_time, sample.status,
+            (sample.metadata_json or {}).get("source", "unknown"),
+        )
+    else:
+        logger.warning(
+            "[DASHBOARD] ⚠ ZERO closed trades in DB for connection=%s — "
+            "EA push may not have been received, or trade status is not 'closed'",
+            connection.id,
+        )
+
     kpi = _compute_kpi(closed_trades)
     daily_pnl = _compute_daily_pnl(closed_trades)
     calendar_data = _compute_calendar(closed_trades)
     recent = _compute_recent_trades(closed_trades, limit=20)
     positions = _compute_open_positions(open_trades)
     score = _compute_performance_score(closed_trades, daily_pnl)
+
+    logger.info(
+        "[DASHBOARD] KPI → total_pnl=%s total_trades=%d win_rate=%s%% profit_factor=%s max_dd=%s",
+        kpi.total_pnl, kpi.total_trades, kpi.win_rate, kpi.profit_factor, kpi.max_drawdown,
+    )
+    logger.info(
+        "[DASHBOARD] Response → daily_pnl_days=%d recent_trades=%d open_positions=%d",
+        len(daily_pnl), len(recent), len(positions),
+    )
 
     return DashboardResponse(
         kpi=kpi,
@@ -309,6 +344,23 @@ async def get_trades_paginated(
         .limit(limit)
     )
     trades = list(result.scalars().all())
+
+    logger.info(
+        "[TRADES] connection=%s status_filter=%s total_in_db=%d returning=%d",
+        connection_id, status_filter or "all", total, len(trades),
+    )
+    if trades:
+        sample = trades[0]
+        logger.info(
+            "[TRADES] Sample: id=%s symbol=%s side=%s pnl=%s status=%s close_time=%s",
+            sample.id, sample.symbol, sample.side, sample.pnl, sample.status, sample.close_time,
+        )
+    else:
+        logger.warning(
+            "[TRADES] ⚠ ZERO trades found in DB for connection=%s status_filter=%s",
+            connection_id, status_filter or "all",
+        )
+
     return trades, total
 
 

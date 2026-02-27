@@ -74,6 +74,15 @@ async def trigger_sync(
         provider = get_provider(connection.provider, credentials)
 
         trades = await provider.fetch_trades()
+        logger.info(
+            "[SYNC] Provider returned %d trades for connection=%s",
+            len(trades), connection.id,
+        )
+        if not trades:
+            logger.warning(
+                "[SYNC] ⚠ Provider returned ZERO trades — "
+                "this is normal for EA-only connections (use /ea/push instead of sync)",
+            )
         trades_synced = 0
 
         for trade in trades:
@@ -137,7 +146,10 @@ async def trigger_sync(
         await db.commit()
         await db.refresh(sync_log)
 
-        logger.info(f"Sync completed for connection {connection.id}: {trades_synced} trades")
+        logger.info(
+            "[SYNC DONE] connection=%s trades_from_provider=%d trades_saved_or_updated=%d",
+            connection.id, len(trades), trades_synced,
+        )
         return sync_log
 
     except Exception as e:
@@ -150,7 +162,10 @@ async def trigger_sync(
         await db.commit()
         await db.refresh(sync_log)
 
-        logger.error(f"Sync failed for connection {connection.id}: {e}")
+        logger.error(
+            "[SYNC FAILED] connection=%s error=%s",
+            connection.id, e, exc_info=True,
+        )
         return sync_log
 
 
