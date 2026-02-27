@@ -22,6 +22,8 @@ STALE_SYNC_TIMEOUT_SECONDS = 300  # 5 minutes
 async def trigger_sync(
     db: AsyncSession, connection: BrokerConnection
 ) -> BrokerSyncLog:
+    logger.info("[SYNC START] connection=%s provider=%s", connection.id, connection.provider)
+
     running_result = await db.execute(
         select(BrokerSyncLog).where(
             BrokerSyncLog.connection_id == connection.id,
@@ -33,10 +35,15 @@ async def trigger_sync(
         # Auto-expire stale locks older than STALE_SYNC_TIMEOUT_SECONDS
         age = (datetime.now(timezone.utc) - running_log.started_at).total_seconds()
         if age < STALE_SYNC_TIMEOUT_SECONDS:
+            logger.warning(
+                "[SYNC BLOCKED] connection=%s lock_id=%s age=%.0fs (limit=%ds) → 409",
+                connection.id, running_log.id, age, STALE_SYNC_TIMEOUT_SECONDS,
+            )
             raise SyncInProgressError()
         # Stale lock — mark as failed and proceed
         logger.warning(
-            f"Stale sync lock found for connection {connection.id} (age={age:.0f}s), resetting"
+            "[SYNC STALE LOCK] connection=%s log_id=%s age=%.0fs — resetting and continuing",
+            connection.id, running_log.id, age,
         )
         running_log.status = "failed"
         running_log.completed_at = datetime.now(timezone.utc)
@@ -47,6 +54,10 @@ async def trigger_sync(
     if connection.last_sync_at:
         elapsed = (datetime.now(timezone.utc) - connection.last_sync_at).total_seconds()
         if elapsed < SYNC_COOLDOWN_SECONDS and connection.last_sync_status == "success":
+            logger.info(
+                "[SYNC COOLDOWN] connection=%s elapsed=%.0fs (cooldown=%ds) → 409",
+                connection.id, elapsed, SYNC_COOLDOWN_SECONDS,
+            )
             raise SyncInProgressError()
 
     sync_log = BrokerSyncLog(connection_id=connection.id, status="running")

@@ -1,16 +1,21 @@
+import logging
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Query, UploadFile, File
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_current_user
 from app.db.session import get_db
+from app.models.broker_sync_log import BrokerSyncLog
 from app.schemas.auth import CurrentUser
 from app.schemas.dashboard import DashboardResponse
 from app.schemas.sync import SyncLogResponse, SyncStatusResponse, SyncTriggerResponse
 from app.schemas.trades import DailyStatListResponse, DailyStatResponse, TradeListResponse, TradeResponse
 from app.services import connection_service, sync_service, stats_service, csv_import_service
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/broker/connections", tags=["broker-data"])
 
 
@@ -26,6 +31,41 @@ async def trigger_sync(
         message="Sincronizzazione completata" if sync_log.status == "success" else "Sincronizzazione fallita",
         sync_log_id=sync_log.id,
     )
+
+
+@router.post("/{connection_id}/sync/reset")
+async def reset_stuck_sync(
+    connection_id: uuid.UUID,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Azzera manualmente i log di sincronizzazione bloccati ('running').
+    Utile quando una sincronizzazione precedente è crashata e il lock è rimasto attivo.
+    """
+    conn = await connection_service.get_connection_with_auth(db, connection_id, user)
+    result = await db.execute(
+        select(BrokerSyncLog).where(
+            BrokerSyncLog.connection_id == conn.id,
+            BrokerSyncLog.status == "running",
+        )
+    )
+    stuck_logs = result.scalars().all()
+    reset_count = 0
+    for log in stuck_logs:
+        age = (datetime.now(timezone.utc) - log.started_at).total_seconds()
+        log.status = "failed"
+        log.completed_at = datetime.now(timezone.utc)
+        log.error_message = f"Reset manuale (age={age:.0f}s)"
+        reset_count += 1
+        logger.warning(
+            "Manual sync reset: connection=%s log_id=%s age=%.0fs",
+            conn.id, log.id, age,
+        )
+    if reset_count:
+        conn.last_sync_status = "failed"
+        await db.commit()
+    return {"message": f"{reset_count} lock azzerati", "reset_count": reset_count}
 
 
 @router.get("/{connection_id}/sync-status", response_model=SyncStatusResponse)

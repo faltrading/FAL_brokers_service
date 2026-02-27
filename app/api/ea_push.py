@@ -64,7 +64,13 @@ async def ea_push_trade(payload: EATradePush, db: AsyncSession = Depends(get_db)
     connection = result.scalar_one_or_none()
 
     if not connection:
+        logger.warning("[EA PUSH FAILED] Token non valido: %.8s...", payload.token)
         raise HTTPException(status_code=401, detail="Token EA non valido")
+
+    logger.info(
+        "[EA PUSH RECEIVED] connection=%s ticket=%s symbol=%s type=%s lots=%.2f pnl=%.2f",
+        connection.id, payload.ticket, payload.symbol, payload.type, payload.lots, payload.profit,
+    )
 
     external_id = str(payload.ticket)
 
@@ -76,6 +82,10 @@ async def ea_push_trade(payload: EATradePush, db: AsyncSession = Depends(get_db)
         )
     )
     if existing.scalar_one_or_none():
+        logger.info(
+            "[EA PUSH DUPLICATE] connection=%s ticket=%s symbol=%s — ignorato",
+            connection.id, external_id, payload.symbol,
+        )
         return {"status": "duplicate", "message": "Trade già registrato"}
 
     side = "buy" if payload.type.strip().lower() in ("buy", "long", "b") else "sell"
@@ -113,7 +123,27 @@ async def ea_push_trade(payload: EATradePush, db: AsyncSession = Depends(get_db)
     await recalculate_daily_stats(db, connection)
 
     logger.info(
-        "EA push: ticket=%s symbol=%s side=%s pnl=%.2f connection=%s",
-        external_id, payload.symbol, side, payload.profit, connection.id,
+        "[EA PUSH OK] connection=%s provider=%s ticket=%s symbol=%s side=%s lots=%.2f "
+        "open=%.5f close=%.5f pnl=%.2f commission=%.2f open_time=%s close_time=%s",
+        connection.id,
+        connection.provider,
+        external_id,
+        payload.symbol,
+        side,
+        payload.lots,
+        payload.open_price,
+        payload.close_price,
+        payload.profit,
+        payload.commission,
+        payload.open_time,
+        payload.close_time,
     )
-    return {"status": "ok", "message": "Trade registrato"}
+    return {
+        "status": "ok",
+        "message": "Trade registrato",
+        "connection_id": str(connection.id),
+        "trade_id": str(trade.id),
+        "symbol": trade.symbol,
+        "side": trade.side,
+        "pnl": float(trade.pnl) if trade.pnl else 0.0,
+    }
