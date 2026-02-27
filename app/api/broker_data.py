@@ -1,14 +1,16 @@
 import logging
+import os
 import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Query, UploadFile, File
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_current_user
 from app.db.session import get_db
 from app.models.broker_sync_log import BrokerSyncLog
+from app.models.broker_trade import BrokerTrade
 from app.schemas.auth import CurrentUser
 from app.schemas.dashboard import DashboardResponse
 from app.schemas.sync import SyncLogResponse, SyncStatusResponse, SyncTriggerResponse
@@ -66,6 +68,119 @@ async def reset_stuck_sync(
         conn.last_sync_status = "failed"
         await db.commit()
     return {"message": f"{reset_count} lock azzerati", "reset_count": reset_count}
+
+
+@router.get("/{connection_id}/debug")
+async def debug_connection(
+    connection_id: uuid.UUID,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Endpoint diagnostico: mostra lo stato completo della connessione,
+    il token EA, i trade nel DB e cosa l'EA deve configurare.
+    """
+    conn = await connection_service.get_connection_with_auth(db, connection_id, user)
+
+    # --- Trade counts ---
+    total_count = (await db.execute(
+        select(func.count(BrokerTrade.id)).where(BrokerTrade.connection_id == conn.id)
+    )).scalar() or 0
+
+    closed_count = (await db.execute(
+        select(func.count(BrokerTrade.id)).where(
+            BrokerTrade.connection_id == conn.id, BrokerTrade.status == "closed"
+        )
+    )).scalar() or 0
+
+    open_count = (await db.execute(
+        select(func.count(BrokerTrade.id)).where(
+            BrokerTrade.connection_id == conn.id, BrokerTrade.status == "open"
+        )
+    )).scalar() or 0
+
+    ea_count = (await db.execute(
+        select(func.count(BrokerTrade.id)).where(
+            BrokerTrade.connection_id == conn.id,
+            BrokerTrade.metadata_json["source"].astext == "ea",
+        )
+    )).scalar() or 0
+
+    # --- Last 3 trades ---
+    last_trades_result = await db.execute(
+        select(BrokerTrade)
+        .where(BrokerTrade.connection_id == conn.id)
+        .order_by(BrokerTrade.created_at.desc())
+        .limit(3)
+    )
+    last_trades = [
+        {
+            "id": str(t.id),
+            "symbol": t.symbol,
+            "side": t.side,
+            "pnl": float(t.pnl) if t.pnl is not None else None,
+            "status": t.status,
+            "source": (t.metadata_json or {}).get("source", "unknown"),
+            "external_trade_id": t.external_trade_id,
+            "created_at": t.created_at.isoformat(),
+        }
+        for t in last_trades_result.scalars().all()
+    ]
+
+    # --- Last sync log ---
+    last_log_result = await db.execute(
+        select(BrokerSyncLog)
+        .where(BrokerSyncLog.connection_id == conn.id)
+        .order_by(BrokerSyncLog.started_at.desc())
+        .limit(1)
+    )
+    last_log = last_log_result.scalar_one_or_none()
+
+    # --- EA token & push URL ---
+    metadata = conn.metadata_json or {}
+    ea_token = metadata.get("ea_token")
+    base_url = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
+    ea_push_url = f"{base_url}/api/v1/broker/ea/push" if base_url else "<PUBLIC_BASE_URL env not set>"
+
+    logger.info(
+        "[DEBUG] connection=%s total_trades=%d closed=%d open=%d ea_sourced=%d ea_token_set=%s",
+        conn.id, total_count, closed_count, open_count, ea_count, bool(ea_token),
+    )
+
+    return {
+        "connection": {
+            "id": str(conn.id),
+            "provider": conn.provider,
+            "account_identifier": conn.account_identifier,
+            "status": conn.connection_status,
+            "last_sync_at": conn.last_sync_at.isoformat() if conn.last_sync_at else None,
+            "last_sync_status": conn.last_sync_status,
+        },
+        "ea_config": {
+            "ea_token_set": bool(ea_token),
+            "ea_token_preview": (ea_token[:8] + "..." + ea_token[-4:]) if ea_token else None,
+            "ea_push_url": ea_push_url,
+            "instruction": (
+                "EA token non impostato. Chiama POST /{connection_id}/ea-token per generarlo."
+                if not ea_token
+                else f"Configura l'EA con: URL={ea_push_url} e TOKEN={ea_token[:8]}..."
+            ),
+        },
+        "trades_in_db": {
+            "total": total_count,
+            "closed": closed_count,
+            "open": open_count,
+            "from_ea_push": ea_count,
+            "last_3": last_trades,
+        },
+        "last_sync_log": {
+            "status": last_log.status if last_log else None,
+            "started_at": last_log.started_at.isoformat() if last_log and last_log.started_at else None,
+            "completed_at": last_log.completed_at.isoformat() if last_log and last_log.completed_at else None,
+            "trades_synced": last_log.trades_synced if last_log else 0,
+            "error_message": last_log.error_message if last_log else None,
+        } if last_log else None,
+    }
 
 
 @router.get("/{connection_id}/sync-status", response_model=SyncStatusResponse)
