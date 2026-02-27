@@ -1,6 +1,8 @@
+import secrets
 import uuid
 
 from fastapi import APIRouter, Depends
+from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_current_user
@@ -107,3 +109,21 @@ async def delete_connection(
 ):
     await connection_service.get_connection_with_auth(db, connection_id, user)
     await connection_service.delete_connection(db, connection_id)
+
+
+@router.post("/{connection_id}/ea-token")
+async def generate_ea_token(
+    connection_id: uuid.UUID,
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Genera (o rigenera) il token EA per questa connessione."""
+    conn = await connection_service.get_connection_with_auth(db, connection_id, user)
+    token = secrets.token_urlsafe(32)
+    metadata = dict(conn.metadata_json or {})
+    metadata["ea_token"] = token
+    conn.metadata_json = metadata
+    flag_modified(conn, "metadata_json")
+    await db.commit()
+    await db.refresh(conn)
+    return {"ea_token": token, "connection_id": str(connection_id)}

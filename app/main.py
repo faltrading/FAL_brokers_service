@@ -11,7 +11,7 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 
-from app.api import admin, broker_data, connections, health
+from app.api import admin, broker_data, connections, ea_push, health
 from app.db.session import engine
 from app.services.gateway_client import close_gateway_client
 
@@ -48,4 +48,5 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(connections.router)
 app.include_router(broker_data.router)
+app.include_router(ea_push.router)
 app.include_router(admin.router)
