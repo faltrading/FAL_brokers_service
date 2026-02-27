@@ -15,20 +15,34 @@ from app.services.stats_service import recalculate_daily_stats
 
 logger = logging.getLogger(__name__)
 
-SYNC_COOLDOWN_SECONDS = 120
+SYNC_COOLDOWN_SECONDS = 30
+STALE_SYNC_TIMEOUT_SECONDS = 300  # 5 minutes
 
 
 async def trigger_sync(
     db: AsyncSession, connection: BrokerConnection
 ) -> BrokerSyncLog:
-    running = await db.execute(
+    running_result = await db.execute(
         select(BrokerSyncLog).where(
             BrokerSyncLog.connection_id == connection.id,
             BrokerSyncLog.status == "running",
         )
     )
-    if running.scalar_one_or_none():
-        raise SyncInProgressError()
+    running_log = running_result.scalar_one_or_none()
+    if running_log:
+        # Auto-expire stale locks older than STALE_SYNC_TIMEOUT_SECONDS
+        age = (datetime.now(timezone.utc) - running_log.started_at).total_seconds()
+        if age < STALE_SYNC_TIMEOUT_SECONDS:
+            raise SyncInProgressError()
+        # Stale lock — mark as failed and proceed
+        logger.warning(
+            f"Stale sync lock found for connection {connection.id} (age={age:.0f}s), resetting"
+        )
+        running_log.status = "failed"
+        running_log.completed_at = datetime.now(timezone.utc)
+        running_log.error_message = "Timeout automatico: sincronizzazione precedente non completata"
+        connection.last_sync_status = "failed"
+        await db.commit()
 
     if connection.last_sync_at:
         elapsed = (datetime.now(timezone.utc) - connection.last_sync_at).total_seconds()
