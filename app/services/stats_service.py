@@ -138,15 +138,28 @@ def _compute_kpi(trades: list[BrokerTrade]) -> KpiData:
     total_days = len(daily_pnls)
     day_win_rate = (winning_days / total_days * 100) if total_days > 0 else 0
 
+    # max drawdown from cumulative equity curve
+    max_dd = 0.0
+    peak = 0.0
+    cumulative = 0.0
+    for t in sorted(trades, key=lambda x: x.close_time or x.open_time):
+        cumulative += float(t.pnl or 0)
+        if cumulative > peak:
+            peak = cumulative
+        dd = peak - cumulative
+        if dd > max_dd:
+            max_dd = dd
+
     return KpiData(
-        net_pnl=round(total_pnl, 2),
+        total_pnl=round(total_pnl, 2),
         total_trades=total_trades,
         win_rate=round(win_rate, 2),
         profit_factor=round(profit_factor, 2),
+        max_drawdown=round(max_dd, 2),
+        average_win=round(avg_win, 2),
+        average_loss=round(avg_loss, 2),
         day_win_rate=round(day_win_rate, 2),
         avg_win_loss_ratio=round(avg_win_loss_ratio, 2),
-        avg_win_trade=round(avg_win, 2),
-        avg_loss_trade=round(-avg_loss, 2),
     )
 
 
@@ -164,7 +177,7 @@ def _compute_daily_pnl(trades: list[BrokerTrade]) -> list[DailyPnlPoint]:
         cumulative += pnl
         result.append(DailyPnlPoint(
             date=day,
-            pnl=round(pnl, 2),
+            total_pnl=round(pnl, 2),
             cumulative_pnl=round(cumulative, 2),
         ))
     return result
@@ -188,10 +201,12 @@ def _compute_recent_trades(trades: list[BrokerTrade], limit: int = 20) -> list[R
     sorted_trades = sorted(trades, key=lambda t: t.close_time or t.open_time, reverse=True)
     return [
         RecentTrade(
-            close_date=t.close_time.isoformat() if t.close_time else t.open_time.isoformat(),
+            id=str(t.id),
             symbol=t.symbol,
             side=t.side,
-            pnl=round(float(t.pnl or 0), 2),
+            volume=round(float(t.volume or 0), 2),
+            pnl=round(float(t.pnl or 0), 2) if t.pnl is not None else None,
+            close_time=t.close_time.isoformat() if t.close_time else None,
         )
         for t in sorted_trades[:limit]
     ]
@@ -231,8 +246,8 @@ def _compute_performance_score(
     avg_loss = (total_loss / len(loss_amounts)) if loss_amounts else 0
     avg_win_loss = (avg_win / avg_loss) if avg_loss > 0 else 0
 
-    max_dd = 0
-    peak = 0
+    max_dd = 0.0
+    peak = 0.0
     for point in daily_pnl:
         if point.cumulative_pnl > peak:
             peak = point.cumulative_pnl

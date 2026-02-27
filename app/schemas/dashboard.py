@@ -2,19 +2,20 @@ from pydantic import BaseModel, Field
 
 
 class KpiData(BaseModel):
-    net_pnl: float = 0
+    total_pnl: float = 0       # was net_pnl
     total_trades: int = 0
     win_rate: float = 0
     profit_factor: float = 0
+    max_drawdown: float = 0    # new
+    average_win: float = 0     # was avg_win_trade
+    average_loss: float = 0    # was avg_loss_trade (positive value)
     day_win_rate: float = 0
     avg_win_loss_ratio: float = 0
-    avg_win_trade: float = 0
-    avg_loss_trade: float = 0
 
 
 class DailyPnlPoint(BaseModel):
     date: str
-    pnl: float
+    total_pnl: float           # was pnl
     cumulative_pnl: float
 
 
@@ -25,10 +26,12 @@ class CalendarDay(BaseModel):
 
 
 class RecentTrade(BaseModel):
-    close_date: str
+    id: str
     symbol: str
     side: str
-    pnl: float
+    volume: float
+    pnl: float | None = None
+    close_time: str | None = None
 
 
 class OpenPosition(BaseModel):
