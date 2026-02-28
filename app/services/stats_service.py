@@ -22,6 +22,11 @@ from app.schemas.dashboard import (
 logger = logging.getLogger(__name__)
 
 
+def _net_pnl(t: "BrokerTrade") -> float:
+    """Return net P&L including commission and swap."""
+    return float(t.pnl or 0) + float(t.commission or 0) + float(t.swap or 0)
+
+
 async def recalculate_daily_stats(
     db: AsyncSession, connection: BrokerConnection
 ) -> None:
@@ -48,7 +53,7 @@ async def recalculate_daily_stats(
     for trade in trades:
         day_key = trade.close_time.date()
         d = daily[day_key]
-        pnl = float(trade.pnl or 0)
+        pnl = _net_pnl(trade)
         d["total_pnl"] += pnl
         d["trade_count"] += 1
         d["volume"] += float(trade.volume or 0)
@@ -150,14 +155,14 @@ def _compute_kpi(trades: list[BrokerTrade]) -> KpiData:
     if not trades:
         return KpiData()
 
-    total_pnl = sum(float(t.pnl or 0) for t in trades)
+    total_pnl = sum(_net_pnl(t) for t in trades)
     total_trades = len(trades)
-    wins = [t for t in trades if float(t.pnl or 0) > 0]
-    losses = [t for t in trades if float(t.pnl or 0) < 0]
+    wins = [t for t in trades if _net_pnl(t) > 0]
+    losses = [t for t in trades if _net_pnl(t) < 0]
     win_rate = (len(wins) / total_trades * 100) if total_trades > 0 else 0
 
-    total_win_amount = sum(float(t.pnl) for t in wins) if wins else 0
-    total_loss_amount = abs(sum(float(t.pnl) for t in losses)) if losses else 0
+    total_win_amount = sum(_net_pnl(t) for t in wins) if wins else 0
+    total_loss_amount = abs(sum(_net_pnl(t) for t in losses)) if losses else 0
     profit_factor = (total_win_amount / total_loss_amount) if total_loss_amount > 0 else 0
 
     avg_win = (total_win_amount / len(wins)) if wins else 0
@@ -167,7 +172,7 @@ def _compute_kpi(trades: list[BrokerTrade]) -> KpiData:
     daily_pnls: dict[str, float] = defaultdict(float)
     for t in trades:
         if t.close_time:
-            daily_pnls[t.close_time.date().isoformat()] += float(t.pnl or 0)
+            daily_pnls[t.close_time.date().isoformat()] += _net_pnl(t)
 
     winning_days = sum(1 for v in daily_pnls.values() if v > 0)
     total_days = len(daily_pnls)
@@ -178,7 +183,7 @@ def _compute_kpi(trades: list[BrokerTrade]) -> KpiData:
     peak = 0.0
     cumulative = 0.0
     for t in sorted(trades, key=lambda x: x.close_time or x.open_time):
-        cumulative += float(t.pnl or 0)
+        cumulative += _net_pnl(t)
         if cumulative > peak:
             peak = cumulative
         dd = peak - cumulative
@@ -202,7 +207,7 @@ def _compute_daily_pnl(trades: list[BrokerTrade]) -> list[DailyPnlPoint]:
     daily: dict[str, float] = defaultdict(float)
     for t in trades:
         if t.close_time:
-            daily[t.close_time.date().isoformat()] += float(t.pnl or 0)
+            daily[t.close_time.date().isoformat()] += _net_pnl(t)
 
     sorted_days = sorted(daily.keys())
     result = []
@@ -223,7 +228,7 @@ def _compute_calendar(trades: list[BrokerTrade]) -> list[CalendarDay]:
     for t in trades:
         if t.close_time:
             day = t.close_time.date().isoformat()
-            daily[day]["pnl"] += float(t.pnl or 0)
+            daily[day]["pnl"] += _net_pnl(t)
             daily[day]["count"] += 1
 
     return [
@@ -240,7 +245,7 @@ def _compute_recent_trades(trades: list[BrokerTrade], limit: int = 20) -> list[R
             symbol=t.symbol,
             side=t.side,
             volume=round(float(t.volume or 0), 2),
-            pnl=round(float(t.pnl or 0), 2) if t.pnl is not None else None,
+            pnl=round(_net_pnl(t), 2),
             close_time=t.close_time.isoformat() if t.close_time else None,
         )
         for t in sorted_trades[:limit]
@@ -268,11 +273,11 @@ def _compute_performance_score(
         return PerformanceScore()
 
     total = len(trades)
-    wins = sum(1 for t in trades if float(t.pnl or 0) > 0)
+    wins = sum(1 for t in trades if _net_pnl(t) > 0)
     win_rate_pct = (wins / total * 100) if total > 0 else 0
 
-    win_amounts = [float(t.pnl) for t in trades if float(t.pnl or 0) > 0]
-    loss_amounts = [abs(float(t.pnl)) for t in trades if float(t.pnl or 0) < 0]
+    win_amounts = [_net_pnl(t) for t in trades if _net_pnl(t) > 0]
+    loss_amounts = [abs(_net_pnl(t)) for t in trades if _net_pnl(t) < 0]
     total_win = sum(win_amounts) if win_amounts else 0
     total_loss = sum(loss_amounts) if loss_amounts else 0
     profit_factor = (total_win / total_loss) if total_loss > 0 else 0
@@ -290,7 +295,7 @@ def _compute_performance_score(
         if dd > max_dd:
             max_dd = dd
 
-    net_pnl = sum(float(t.pnl or 0) for t in trades)
+    net_pnl = sum(_net_pnl(t) for t in trades)
     recovery_factor = (net_pnl / max_dd) if max_dd > 0 else 0
 
     daily_returns = [p.total_pnl for p in daily_pnl]
