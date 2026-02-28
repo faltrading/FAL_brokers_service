@@ -37,6 +37,13 @@ class FtmoProvider(BaseProvider):
         elif platform in ("mt4", "mt5") and self.credentials.get("metaapi_token"):
             return await self._fetch_via_metaapi(from_date, to_date)
 
+        # No API credentials configured — this is an EA-only connection.
+        # Trades are received via the /ea/push endpoint, not through provider sync.
+        logger.info(
+            "FTMO: No API credentials for platform=%s — trades are collected via EA push. "
+            "To enable API sync, configure MetaApi or cTrader credentials.",
+            platform,
+        )
         return []
 
     async def _fetch_via_ctrader(

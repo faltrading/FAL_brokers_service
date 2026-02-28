@@ -1,5 +1,4 @@
 import logging
-import os
 import uuid
 from datetime import datetime, timezone
 
@@ -7,6 +6,7 @@ from fastapi import APIRouter, Depends, Query, UploadFile, File
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.security import get_current_user
 from app.db.session import get_db
 from app.models.broker_sync_log import BrokerSyncLog
@@ -139,8 +139,8 @@ async def debug_connection(
     # --- EA token & push URL ---
     metadata = conn.metadata_json or {}
     ea_token = metadata.get("ea_token")
-    base_url = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
-    ea_push_url = f"{base_url}/api/v1/broker/ea/push" if base_url else "<PUBLIC_BASE_URL env not set>"
+    base_url = settings.PUBLIC_BASE_URL.rstrip("/") if settings.PUBLIC_BASE_URL else ""
+    ea_push_url = f"{base_url}/api/v1/broker/ea/push" if base_url else "<PUBLIC_BASE_URL env not set — set it to your broker service public URL>"
 
     logger.info(
         "[DEBUG] connection=%s total_trades=%d closed=%d open=%d ea_sourced=%d ea_token_set=%s",

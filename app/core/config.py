@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     ADMIN_EMAIL: str = "faltrade@protonmail.com"
     BROKER_SERVICE_PORT: int = 8005
     BROKER_ENCRYPTION_KEY: str = ""
+    PUBLIC_BASE_URL: str = ""
 
     @property
     def async_database_url(self) -> str:

@@ -19,10 +19,81 @@ SYNC_COOLDOWN_SECONDS = 30
 STALE_SYNC_TIMEOUT_SECONDS = 300  # 5 minutes
 
 
+def _is_ea_only_connection(connection: BrokerConnection) -> bool:
+    """
+    Detect if a connection relies solely on EA push (no API credentials).
+    EA-only connections have an ea_token in metadata but no usable API credentials.
+    """
+    metadata = connection.metadata_json or {}
+    if not metadata.get("ea_token"):
+        return False
+    # If credentials_encrypted is empty/None, it's EA-only
+    if not connection.credentials_encrypted:
+        return True
+    return False
+
+
 async def trigger_sync(
     db: AsyncSession, connection: BrokerConnection
 ) -> BrokerSyncLog:
     logger.info("[SYNC START] connection=%s provider=%s", connection.id, connection.provider)
+
+    # ── EA-only connections: recalculate stats from existing trades ──
+    if _is_ea_only_connection(connection):
+        logger.info(
+            "[SYNC EA-ONLY] connection=%s — no API credentials, "
+            "recalculating stats from EA-pushed trades only",
+            connection.id,
+        )
+        sync_log = BrokerSyncLog(connection_id=connection.id, status="running")
+        db.add(sync_log)
+        await db.commit()
+        await db.refresh(sync_log)
+
+        try:
+            # Count existing EA-pushed trades
+            from sqlalchemy import func as sa_func
+            trade_count_result = await db.execute(
+                select(sa_func.count(BrokerTrade.id)).where(
+                    BrokerTrade.connection_id == connection.id,
+                )
+            )
+            trade_count = trade_count_result.scalar() or 0
+
+            # Recalculate daily stats from existing trades
+            await recalculate_daily_stats(db, connection)
+
+            now = datetime.now(timezone.utc)
+            sync_log.status = "success"
+            sync_log.completed_at = now
+            sync_log.trades_synced = trade_count
+            sync_log.error_message = None
+            connection.last_sync_at = now
+            connection.last_sync_status = "success"
+            connection.last_sync_error = None
+            await db.commit()
+            await db.refresh(sync_log)
+
+            logger.info(
+                "[SYNC EA-ONLY DONE] connection=%s trades_in_db=%d — "
+                "stats recalculated from EA-pushed trades",
+                connection.id, trade_count,
+            )
+            return sync_log
+
+        except Exception as e:
+            now = datetime.now(timezone.utc)
+            sync_log.status = "failed"
+            sync_log.completed_at = now
+            sync_log.error_message = f"EA-only stats recalc failed: {str(e)[:500]}"
+            connection.last_sync_status = "failed"
+            connection.last_sync_error = str(e)[:500]
+            await db.commit()
+            await db.refresh(sync_log)
+            logger.error("[SYNC EA-ONLY FAILED] connection=%s error=%s", connection.id, e, exc_info=True)
+            return sync_log
+
+    # ── Standard API-based sync ──
 
     running_result = await db.execute(
         select(BrokerSyncLog).where(
