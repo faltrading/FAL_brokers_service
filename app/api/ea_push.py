@@ -123,6 +123,11 @@ async def ea_push_trade(payload: EATradePush, db: AsyncSession = Depends(get_db)
         },
     )
     db.add(trade)
+
+    # Update connection last_sync_at so the dashboard shows the correct "Last import" time
+    connection.last_sync_at = datetime.now(timezone.utc)
+    connection.last_sync_status = "success"
+
     await db.commit()
 
     await recalculate_daily_stats(db, connection)

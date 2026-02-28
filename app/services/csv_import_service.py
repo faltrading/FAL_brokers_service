@@ -263,6 +263,10 @@ async def import_csv(
     await db.commit()
 
     if trades_imported > 0:
+        # Update connection timestamp so the dashboard shows the correct "Last import" time
+        connection.last_sync_at = datetime.now(timezone.utc)
+        connection.last_sync_status = "success"
+        await db.commit()
         await recalculate_daily_stats(db, connection)
 
     logger.info(f"CSV import: {trades_imported} trades imported (format: {fmt})")
