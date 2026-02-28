@@ -49,7 +49,7 @@ def _parse_dt(value: str) -> datetime | None:
     return None
 
 
-@router.post("/push", status_code=200)
+@router.post("/push")
 async def ea_push_trade(payload: EATradePush, db: AsyncSession = Depends(get_db)):
     """
     Endpoint chiamato dall'EA (Expert Advisor) su MT4/MT5 per inviare i trade chiusi.
@@ -82,11 +82,15 @@ async def ea_push_trade(payload: EATradePush, db: AsyncSession = Depends(get_db)
         )
     )
     if existing.scalar_one_or_none():
-        logger.info(
+        logger.warning(
             "[EA PUSH DUPLICATE] connection=%s ticket=%s symbol=%s — ignorato",
             connection.id, external_id, payload.symbol,
         )
-        return {"status": "duplicate", "message": "Trade già registrato"}
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=200,
+            content={"status": "duplicate", "message": "Trade già registrato"},
+        )
 
     side = "buy" if payload.type.strip().lower() in ("buy", "long", "b") else "sell"
     open_time = _parse_dt(payload.open_time)
@@ -138,12 +142,16 @@ async def ea_push_trade(payload: EATradePush, db: AsyncSession = Depends(get_db)
         payload.open_time,
         payload.close_time,
     )
-    return {
-        "status": "ok",
-        "message": "Trade registrato",
-        "connection_id": str(connection.id),
-        "trade_id": str(trade.id),
-        "symbol": trade.symbol,
-        "side": trade.side,
-        "pnl": float(trade.pnl) if trade.pnl else 0.0,
-    }
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=201,
+        content={
+            "status": "ok",
+            "message": "Trade registrato",
+            "connection_id": str(connection.id),
+            "trade_id": str(trade.id),
+            "symbol": trade.symbol,
+            "side": trade.side,
+            "pnl": float(trade.pnl) if trade.pnl else 0.0,
+        },
+    )
