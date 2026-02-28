@@ -255,6 +255,7 @@ async def import_csv(
             commission=parsed.get("commission", 0),
             swap=parsed.get("swap", 0),
             status=status,
+            metadata_json={"source": "csv"},
         )
         db.add(trade)
         trades_imported += 1
