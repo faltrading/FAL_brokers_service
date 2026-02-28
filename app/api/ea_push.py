@@ -30,6 +30,7 @@ class EATradePush(BaseModel):
     swap: float = 0.0
     magic: int = 0
     comment: str = ""
+    platform: str = "ea"  # "mt4" | "mt5" | "ea" (fallback for old EAs)
 
 
 _DATE_FORMATS = [
@@ -118,7 +119,7 @@ async def ea_push_trade(payload: EATradePush, db: AsyncSession = Depends(get_db)
         metadata_json={
             "magic": payload.magic,
             "comment": payload.comment,
-            "source": "ea",
+            "source": payload.platform if payload.platform in ("mt4", "mt5") else "ea",
         },
     )
     db.add(trade)
