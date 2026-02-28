@@ -33,10 +33,43 @@ def _is_ea_only_connection(connection: BrokerConnection) -> bool:
     return False
 
 
+def _has_no_sync_method(connection: BrokerConnection) -> bool:
+    """
+    Connection has neither EA token nor API credentials.
+    No way to get trades — user needs to configure at least one method.
+    """
+    metadata = connection.metadata_json or {}
+    has_ea = bool(metadata.get("ea_token"))
+    has_credentials = bool(connection.credentials_encrypted)
+    return not has_ea and not has_credentials
+
+
 async def trigger_sync(
     db: AsyncSession, connection: BrokerConnection
 ) -> BrokerSyncLog:
     logger.info("[SYNC START] connection=%s provider=%s", connection.id, connection.provider)
+
+    # ── No sync method configured: no EA token and no API credentials ──
+    if _has_no_sync_method(connection):
+        logger.warning(
+            "[SYNC NO METHOD] connection=%s — no EA token and no API credentials configured",
+            connection.id,
+        )
+        sync_log = BrokerSyncLog(connection_id=connection.id, status="failed")
+        sync_log.completed_at = datetime.now(timezone.utc)
+        sync_log.trades_synced = 0
+        sync_log.error_message = (
+            "Nessun metodo di sincronizzazione configurato. "
+            "Genera un token EA per importare i trade da MetaTrader, "
+            "oppure usa l'import CSV."
+        )
+        db.add(sync_log)
+        connection.last_sync_at = datetime.now(timezone.utc)
+        connection.last_sync_status = "failed"
+        connection.last_sync_error = sync_log.error_message
+        await db.commit()
+        await db.refresh(sync_log)
+        return sync_log
 
     # ── EA-only connections: recalculate stats from existing trades ──
     if _is_ea_only_connection(connection):
@@ -74,11 +107,19 @@ async def trigger_sync(
             await db.commit()
             await db.refresh(sync_log)
 
-            logger.info(
-                "[SYNC EA-ONLY DONE] connection=%s trades_in_db=%d — "
-                "stats recalculated from EA-pushed trades",
-                connection.id, trade_count,
-            )
+            if trade_count == 0:
+                logger.warning(
+                    "[SYNC EA-ONLY] connection=%s — 0 trades in DB. "
+                    "L'EA non ha ancora inviato trade. Assicurarsi che l'EA "
+                    "sia installato e in esecuzione su MetaTrader.",
+                    connection.id,
+                )
+            else:
+                logger.info(
+                    "[SYNC EA-ONLY DONE] connection=%s trades_in_db=%d — "
+                    "stats recalculated from EA-pushed trades",
+                    connection.id, trade_count,
+                )
             return sync_log
 
         except Exception as e:

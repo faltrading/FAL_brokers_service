@@ -29,9 +29,31 @@ async def trigger_sync(
 ):
     conn = await connection_service.get_connection_with_auth(db, connection_id, user)
     sync_log = await sync_service.trigger_sync(db, conn)
+
+    trades_synced = sync_log.trades_synced or 0
+    ea_pending = False
+
+    # Detect EA-only connections that have no trades yet → guide user to install EA
+    metadata = conn.metadata_json or {}
+    is_ea_only = bool(metadata.get("ea_token")) and not conn.credentials_encrypted
+
+    if sync_log.status == "success" and is_ea_only and trades_synced == 0:
+        ea_pending = True
+        message = (
+            "L'EA non ha ancora inviato trade. "
+            "Installa l'EA su MetaTrader e assicurati che sia in esecuzione. "
+            "Lo storico verrà importato automaticamente all'avvio dell'EA."
+        )
+    elif sync_log.status == "success":
+        message = f"Sincronizzazione completata: {trades_synced} trade trovati"
+    else:
+        message = sync_log.error_message or "Sincronizzazione fallita"
+
     return SyncTriggerResponse(
-        message="Sincronizzazione completata" if sync_log.status == "success" else "Sincronizzazione fallita",
+        message=message,
         sync_log_id=sync_log.id,
+        trades_synced=trades_synced,
+        ea_pending=ea_pending,
     )
 
 

@@ -26,3 +26,5 @@ class SyncLogResponse(BaseModel):
 class SyncTriggerResponse(BaseModel):
     message: str
     sync_log_id: uuid.UUID
+    trades_synced: int = 0
+    ea_pending: bool = False
