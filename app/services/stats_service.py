@@ -293,7 +293,7 @@ def _compute_performance_score(
     net_pnl = sum(float(t.pnl or 0) for t in trades)
     recovery_factor = (net_pnl / max_dd) if max_dd > 0 else 0
 
-    daily_returns = [p.pnl for p in daily_pnl]
+    daily_returns = [p.total_pnl for p in daily_pnl]
     consistency = 0
     if daily_returns:
         mean_return = sum(daily_returns) / len(daily_returns)
