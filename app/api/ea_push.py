@@ -158,6 +158,8 @@ async def ea_push_trade(payload: EATradePush, db: AsyncSession = Depends(get_db)
             "trade_id": str(trade.id),
             "symbol": trade.symbol,
             "side": trade.side,
-            "pnl": float(trade.pnl) if trade.pnl else 0.0,
+            "net_pnl": round(
+                float(trade.pnl or 0) + float(trade.commission or 0) + float(trade.swap or 0), 2
+            ),
         },
     )
