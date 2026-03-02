@@ -96,7 +96,7 @@ def _parse_mt4_row(row: dict) -> dict | None:
             "close_price": _parse_float(row.get("close price", "0")),
             "volume": _parse_float(row.get("size", row.get("lots", "0"))),
             "pnl": _parse_float(row.get("profit", "0")),
-            "commission": _parse_float(row.get("commission", "0")),
+            "commission": _parse_float(row.get("commission", "0")) * 2,
             "swap": _parse_float(row.get("swap", "0")),
         }
     except Exception:
@@ -121,7 +121,7 @@ def _parse_mt5_row(row: dict) -> dict | None:
             "close_price": _parse_float(row.get("price", "0")),
             "volume": _parse_float(row.get("volume", row.get("lots", "0"))),
             "pnl": _parse_float(row.get("profit", "0")),
-            "commission": _parse_float(row.get("commission", "0")),
+            "commission": _parse_float(row.get("commission", "0")) * 2,
             "swap": _parse_float(row.get("swap", "0")),
         }
     except Exception:
@@ -140,7 +140,7 @@ def _parse_ctrader_row(row: dict) -> dict | None:
             "close_price": _parse_float(row.get("close price", "0")),
             "volume": _parse_float(row.get("volume", row.get("quantity", "0"))),
             "pnl": _parse_float(row.get("net profit", row.get("profit", "0"))),
-            "commission": _parse_float(row.get("commission", "0")),
+            "commission": _parse_float(row.get("commission", "0")) * 2,
             "swap": _parse_float(row.get("swap", "0")),
         }
     except Exception:
@@ -159,7 +159,7 @@ def _parse_tradovate_row(row: dict) -> dict | None:
             "close_price": _parse_float(row.get("avgfillprice", row.get("fill price", "0"))),
             "volume": _parse_float(row.get("qty", row.get("quantity", "0"))),
             "pnl": _parse_float(row.get("pnl", row.get("profit", "0"))),
-            "commission": _parse_float(row.get("commission", "0")),
+            "commission": _parse_float(row.get("commission", "0")) * 2,
             "swap": 0,
         }
     except Exception:
@@ -178,7 +178,7 @@ def _parse_generic_row(row: dict) -> dict | None:
             "close_price": _parse_float(row.get("close_price", row.get("exit_price", "0"))),
             "volume": _parse_float(row.get("volume", row.get("lots", row.get("size", "0")))),
             "pnl": _parse_float(row.get("pnl", row.get("profit", row.get("net_pnl", "0")))),
-            "commission": _parse_float(row.get("commission", "0")),
+            "commission": _parse_float(row.get("commission", "0")) * 2,
             "swap": _parse_float(row.get("swap", "0")),
         }
     except Exception:

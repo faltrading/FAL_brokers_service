@@ -113,7 +113,7 @@ async def ea_push_trade(payload: EATradePush, db: AsyncSession = Depends(get_db)
         close_price=payload.close_price,
         volume=payload.lots,
         pnl=payload.profit,
-        commission=payload.commission,
+        commission=payload.commission * 2,
         swap=payload.swap,
         status="closed" if close_time else "open",
         metadata_json={
@@ -159,7 +159,7 @@ async def ea_push_trade(payload: EATradePush, db: AsyncSession = Depends(get_db)
             "symbol": trade.symbol,
             "side": trade.side,
             "net_pnl": round(
-                float(trade.pnl or 0) + float((2*trade.commission) or 0) + float(trade.swap or 0), 2
+                float(trade.pnl or 0) + float(trade.commission or 0) + float(trade.swap or 0), 2
             ),
         },
     )
